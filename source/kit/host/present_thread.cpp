@@ -1143,13 +1143,14 @@ struct Service : std::enable_shared_from_this<Service> {
                     in.drawable_h = drawable_desc.height;
                     compositor_compose(device, &in, drawable, cb);
                 }
+                const int overlay_mode = mods_display_overlay();
                 FramePacingSnapshot snapshot;
-                {
+                if (performance_overlay.needs_snapshot(device, ts, overlay_mode, f->diagnostic)) {
                     std::lock_guard lock(mutex);
                     snapshot = pacing.snapshot(ts, drops);
                 }
                 performance_overlay.draw(device, cb, drawable, drawable_desc.width,
-                                         drawable_desc.height, snapshot, ts, mods_display_overlay(),
+                                         drawable_desc.height, snapshot, ts, overlay_mode,
                                          mods_display_fps(), f->diagnostic, f->frame_id);
                 const controls::ControlsView controls_view = host_present_controls();
                 if (controls_view.wanted)

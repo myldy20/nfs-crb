@@ -12,6 +12,10 @@
 class PerformanceOverlay {
   public:
     ~PerformanceOverlay();
+    // Snapshot calculation sorts frame intervals; only request it when the
+    // visible texture will actually be refreshed. Must match draw().
+    bool needs_snapshot(gpu::Device *device, double now, int mode,
+                        const CaptureMarker &capture = {}) const;
     // Blend the overlay onto `target` (drawable pixels `w` x `h`) inside `cb`.
     // `mode` 0 draws nothing, 1 the counters, 2 the counters and the graph.
     void draw(gpu::Device *device, gpu::CommandBuffer cb, gpu::Texture target, int w, int h,
