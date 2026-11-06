@@ -17,7 +17,7 @@ function fixture({query='',site=true,normal=false,status=201,storage=new Map(),s
     location:new URL('https://example.test/'+query),recompSite:site,
     navigator:{userAgent:'Windows Chrome',hardwareConcurrency:8},
     sessionStorage:store(session),localStorage:store(storage),devicePixelRatio:1,
-    screen:{width:1280,height:720},innerWidth:1280,innerHeight:720,
+    screen:{width:1280,height:720},innerWidth:1280,innerHeight:720,crossOriginIsolated:true,
     recompPageBuild:{id:'page-a'},recompRuntimeBuild:{id:'runtime-a',wasm:'wasm-a'},recompReportBuild:{id:'reporter-a'},
     recompServers:{internet:{url:'wss://relay.test/?key=secret'}},
     recompOnline:{name:'PRIVATE PLAYER'},recompLog:['PRIVATE LOG'],carbonGraphicsInfo:{vendor:'nvidia',architecture:'turing'},
@@ -48,6 +48,35 @@ function fixture({query='',site=true,normal=false,status=201,storage=new Map(),s
   return {c,run,requests,bodies,events,settle,advance(ms){clock+=ms;tick();},storage,session};
 }
 
+test('manual logs retain a recent gameplay window after opening the menu, without sending it',async()=>{
+  const f=fixture();
+  await f.run(17,{fps:43,repeatRate:60,gpu:true});
+  assert.equal(f.requests.length,0);
+  f.c.recompMenuOpen=true;
+  await f.run(1,{fps:43,repeatRate:60}); // opening F9 resets the active window
+  const text=await f.c.recompReport.build(500000,'');
+  const line=text.match(/^Game performance \(recent gameplay\): (.+)$/m);
+  assert.ok(line,'manual report contains completed gameplay buckets');
+  const perf=JSON.parse(line[1]);
+  assert.equal(perf.reason,'manual-report');
+  assert.equal(perf.fps,43);
+  assert.equal(perf.rows.at(-1).repeats,17);
+  assert.equal(perf.gpu.status,'measured');
+  assert.ok(perf.ageMs>=0 && perf.ageMs<3000);
+  assert.equal(f.requests.length,0,'building a manual report does not upload it');
+  f.advance(121000);
+  assert.doesNotMatch(await f.c.recompReport.build(500000,''),/^Game performance \(recent gameplay\):/m,
+    'old results must not be presented as current');
+});
+
+test('manual reports omit gameplay metrics when collection is disabled or warming up',async()=>{
+  const disabled=fixture({query:'?RECOMP_PERF_REPORTS=0'});
+  assert.doesNotMatch(await disabled.c.recompReport.build(500000,''),/^Game performance \(recent gameplay\):/m);
+  const f=fixture();
+  await f.run(5,{fps:43});
+  assert.doesNotMatch(await f.c.recompReport.build(500000,''),/^Game performance \(recent gameplay\):/m);
+});
+
 test('automatic low-FPS report counts new gameplay frames, carries timings, and omits private report data',async()=>{
   const f=fixture();
   await f.run(19,{repeatRate:60,gpu:true});assert.equal(f.requests.length,0,'warm-up plus sustained-low threshold not reached');
@@ -56,6 +85,9 @@ test('automatic low-FPS report counts new gameplay frames, carries timings, and 
   assert.equal(f.requests.length,1);
   const body=f.bodies()[0];
   assert.equal(f.c.recompPerformance.enabled,false,'stop native collection after a successful low-FPS capture');
+  const manual=await f.c.recompReport.build(500000,'');
+  const manualPerf=JSON.parse(manual.match(/^Game performance \(recent gameplay\): (.+)$/m)[1]);
+  assert.equal(manualPerf.fps,16,'manual report retains the completed capture after automatic collection stops');
   assert.equal(body.reason,'sustained-low-fps');assert.equal(body.fps,16);
   assert.equal(body.rows.at(-1).repeats,44);assert.equal(body.rows.at(-1).encodeMs,96);
   assert.equal(body.gpu.status,'measured');assert.equal(body.gpu.meanMs,2.5);

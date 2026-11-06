@@ -248,6 +248,12 @@
     head.push(`Storage estimate (browser quota, not disk capacity): ${diagnosticJson(await storageSnapshot())}`);
     head.push(`Active graphics adapter: ${diagnosticJson(window.carbonGraphicsInfo || { unavailable: true })}`);
     head.push(`Browser timing (last 30 seconds): ${diagnosticJson(timingSnapshot())}`);
+    // This is the game's acknowledged-frame data, not browser rAF timing.
+    // The collector may be unavailable, disabled or still warming up.
+    try {
+      const perf = window.recompPerformance?.snapshot?.();
+      if (perf) head.push(`Game performance (recent gameplay): ${diagnosticJson(perf)}`);
+    } catch {}
     head.push(`Renderer events (observed since reporter loaded; not game FPS): ${diagnosticJson({resets:rendererResets,presentationStallReports:rendererFaults,recent:rendererEvents})}`);
     head.push(`Game controller: ${diagnosticJson(window.recompGameController || null)}`);
     head.push(`Controller history (sampled every 500 ms): ${diagnosticJson(inputHistory)}`);
@@ -390,7 +396,7 @@
     return el;
   };
   const what = () => `It sends this game's log, your browser and graphics card name, and your player name (${playerName()}),` +
-    " plus recent timing, controller input, storage and error details, and what you write here. The server keeps no address.";
+    " plus recent browser and gameplay timing, controller input, storage and error details, and what you write here. The server keeps no address.";
 
   let dialog = null;
   function openDialog() {
@@ -478,7 +484,7 @@
     const LIMIT = 2, COOLDOWN = 10 * 60 * 1000, STORE = 'carbon.performance.auto.v1';
     let epoch = null, width = 0, height = 0, started = 0, lastFrame = 0, lastNew = 0;
     let active = false, lowSeconds = 0, sending = false, nextSend = 0, attempts = 0;
-    let healthySent = false, lowSent = false, audio = null, stopped = false;
+    let healthySent = false, lowSent = false, audio = null, stopped = false, lastMeasurement = null;
     const normalSample = Math.random() < .1, rows = [], gpu = [];
     const bins = new Uint32Array(101);
     let frames = 0, repeats = 0, intervals = 0, maxGap = 0;
@@ -494,11 +500,17 @@
       slotWait = yielded = blocked = readyWait = sleep = overrun = objectWait = 0;
     }
     function reset() {
+      // Opening F9 to download a report ends the gameplay window. Preserve
+      // its completed buckets briefly, with their original measurement time.
+      if (active && rows.length)
+        lastMeasurement = {at:bucketAt, data:summary('manual-report')};
       active = false; started = lastNew = lastFrame = 0; lowSeconds = 0;
       rows.length = gpu.length = 0; bucketAt = performance.now(); clearBucket();
     }
     const visible = () => !document.hidden && !window.recompFailure && !window.recompMenuOpen;
     function stopCollection() {
+      if (active && rows.length)
+        lastMeasurement = {at:bucketAt, data:summary('manual-report')};
       stopped = true;
       window.recompPerformance.enabled = false;
       clearInterval(timer);
@@ -605,6 +617,13 @@
         timingScope:'CPU encoding is wall time. Waits overlap and cover displayed frames only. CPU execution time is unavailable; do not add these columns.',
       };
     }
+    function snapshot() {
+      const now = performance.now();
+      const current = active && rows.length && !stopped
+        ? {at:bucketAt, data:summary('manual-report')} : lastMeasurement;
+      if (!current || now < current.at || now - current.at > 120000) return null;
+      return {...current.data, ageMs:round(now - current.at)};
+    }
     async function upload(reason) {
       if (sending || attempts >= LIMIT || Date.now() < nextSend) return;
       const s = server(); if (!s) return;
@@ -661,7 +680,7 @@
       if (!lowSent && lowSeconds>=10) void upload('sustained-low-fps');
       else if (normalSample && !healthySent && !lowSent && rows.length===30 && lowSeconds===0) void upload('normal-sample');
     }
-    window.recompPerformance = {enabled:true, frame, render, gpu:gpuSample, audio:audioLine};
+    window.recompPerformance = {enabled:true, frame, render, gpu:gpuSample, audio:audioLine, snapshot};
     document.addEventListener('visibilitychange', reset);
     addEventListener('pagehide', reset);
     const timer = setInterval(tick, 1000);
