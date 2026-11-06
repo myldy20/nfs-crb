@@ -47,6 +47,16 @@ set_tests_properties(shader_drift_check PROPERTIES LABELS nogame)
 
 # Portable pieces built everywhere. compositor_tests needs a real device for
 # its pixel half (label gpu); ui_layer_tests needs nothing.
+add_executable(performance_overlay_tests ${HOST}/performance_overlay.cpp
+    ${HOST}/tests/performance_overlay_tests.cpp ${POP_ROOT}/mods/font6x8.cpp)
+target_include_directories(performance_overlay_tests PRIVATE ${POP_ROOT} ${HOST})
+target_compile_options(performance_overlay_tests PRIVATE ${POP_WARN_WERROR})
+target_link_libraries(performance_overlay_tests PRIVATE gpu_fake)
+pop_optimize(performance_overlay_tests 1)
+pop_test_binary(performance_overlay_tests)
+add_test(NAME performance_overlay_tests COMMAND performance_overlay_tests WORKING_DIRECTORY ${POP_ROOT})
+set_tests_properties(performance_overlay_tests PROPERTIES LABELS nogame)
+
 add_executable(compositor_tests ${HOST}/compositor.cpp ${HOST}/tests/compositor_tests.cpp)
 target_include_directories(compositor_tests PRIVATE ${POP_ROOT} ${HOST})
 target_compile_options(compositor_tests PRIVATE ${POP_WARN_WERROR})

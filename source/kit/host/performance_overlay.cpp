@@ -150,6 +150,15 @@ void PerformanceOverlay::update(gpu::Device *device, const FramePacingSnapshot &
         device->upload(texture_, {0, 0, width, used}, pixels_.data(), width * 4);
 }
 
+bool PerformanceOverlay::needs_snapshot(gpu::Device *device, double now, int mode,
+                                        const CaptureMarker &capture) const {
+    if (capture.enabled && !mode)
+        mode = 1;
+    return mode && device && ((capture.enabled && capture.render_frame != last_render_) ||
+                              !texture_ || mode != last_mode_ || now - refreshed_ >= .25 ||
+                              device_ != device);
+}
+
 void PerformanceOverlay::draw(gpu::Device *device, gpu::CommandBuffer cb, gpu::Texture target,
                               int w, int h, const FramePacingSnapshot &s, double now, int mode,
                               int limit, const CaptureMarker &capture, uint64_t presenter_frame) {
@@ -157,8 +166,7 @@ void PerformanceOverlay::draw(gpu::Device *device, gpu::CommandBuffer cb, gpu::T
         mode = 1;
     if (!mode || !device || !target || !cb || w <= 0 || h <= 0)
         return;
-    if ((capture.enabled && capture.render_frame != last_render_) || !texture_ ||
-        mode != last_mode_ || now - refreshed_ >= .25 || device_ != device) {
+    if (needs_snapshot(device, now, mode, capture)) {
         update(device, s, mode, limit, capture, presenter_frame);
         last_render_ = capture.render_frame;
         refreshed_ = now;
